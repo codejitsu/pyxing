@@ -6,5 +6,6 @@ Created on 04.12.2012
 
 api_call_names = [
                   'users',
-                  'me'
+                  'me',
+                  'contacts'
                 ]

@@ -6,7 +6,7 @@ Created on 04.12.2012
 from globals import api_call_names
 import logging
 import oauth2 as oauth
-import time
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ class Xing(object):
         self.access_secret = access_secret
         self.verbose = verbose
         self.debug = debug
+        self.http_status = None
         self.stack = []
         
     def __getattr__(self, name):
@@ -55,44 +56,69 @@ class Xing(object):
                 
         return self
     
-    def __call__(self):
+    def __call__(self, *args):
+        ''' Put arguments on the stack. '''
+        map(self.stack.append, args)
+        
+        return self
+        
+    def __request__(self, method, param = None):    
         try:
             if self.stack:
                 self.__log__('Calling: ' + '/'.join(self.stack))
                 
                 url = self.__make_request_url__()
                 
-                params = {
-                    'oauth_version': "1.0",
-                    'oauth_nonce': oauth.generate_nonce(),
-                    'oauth_timestamp': int(time.time())
-                }
+                if param:
+                    url += '?' + param
                 
                 token = oauth.Token(key = self.access_token, secret = self.access_secret)
                 consumer = oauth.Consumer(key = self.consumer_key, secret = self.consumer_secret)
+
+                client = oauth.Client(consumer, token)                
                 
-                params['oauth_token'] = token.key
-                params['oauth_consumer_key'] = consumer.key
+                response = client.request(url, method = method)
                 
-                req = oauth.Request(method="GET", url=url, parameters=params)
+                if response:
+                    self.http_status = response[0]['status']
+                    
+                    if method == 'GET':
+                        if self.http_status == '200':
+                            ''' GET: The call was completed successfully. '''
+                            return json.loads(response[1])
+                    elif method == 'POST':
+                        if self.http_status == '201':
+                            ''' POST: The call was completed successfully. '''
+                            return json.loads(response[1])                        
                 
-                # Sign the request.
-                signature_method = oauth.SignatureMethod_HMAC_SHA1()
-                req.sign_request(signature_method, consumer, token)            
-                
-                client = oauth.Client(consumer)
-                
-                resp = client.request(req.to_url())
-                
-                self.__log__(resp)
-                
-                return resp
+                return None                
             else:
                 raise XingException('Call stack is empty.', 100) 
         finally:
                 self.stack = []
             
         return None
+    
+    def get(self, **kwargs):
+        params = []
+        for name, value in kwargs.items():
+            params.append('{0}={1}'.format(name, value))
+        
+        param = None
+        
+        if params:
+            param = '&'.join(params)
+        
+        return self.__request__('GET', param)
+    
+    def post(self):
+        return self.__request__('POST')
+    
+    def put(self):
+        return self.__request__('PUT')
+    
+    def delete(self):
+        return self.__request__('DELETE')
     
     def __make_request_url__(self):
         first_part = '%s/v%s/' % (self.site, self.api_version,)
